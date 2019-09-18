@@ -2,41 +2,36 @@ import numpy as np
 import itertools
 
 
-# Define the linear tensor transformation layer
 class Linear(object):
-    """The linear tensor layer applies a linear tensor dot product
-    and a bias to its input."""
+    def __init__(self, input_size: int, output_size: int, tensor_dim: int,
+                 weights=None, bias=None):
 
-    def __init__(self, n_in, n_out, tensor_order, W=None, b=None):
-        """Initialse the weight W and bias b parameters."""
-        a = np.sqrt(6.0 / (n_in + n_out))
-        self.W = (np.random.uniform(-a, a, (n_in, n_out))
-                  if W is None else W)
-        self.b = (np.zeros((n_out)) if b is None else b)
+        a = np.sqrt(6.0 / (input_size + output_size))
+        self.W = (np.random.uniform(-a, a, (input_size, output_size))
+                  if weights is None else weights)
+        self.b = (np.zeros(output_size) if bias is None else bias)
         # Axes summed over in backprop
-        self.bpAxes = tuple(range(tensor_order - 1))
+        self.axes = tuple(range(tensor_dim - 1))
 
-    def forward(self, X):
-        """Perform forward step transformation with the help
-        of a tensor product."""
+    def forward(self, x):
         # Same as: Y[i,j,:] = np.dot(X[i,j,:], self.W) + self.b
         #          (for i,j in X.shape[0:1])
         # Same as: Y = np.einsum('ijk,kl->ijl', X, self.W) + self.b
-        return np.tensordot(X, self.W, axes=((-1), (0))) + self.b
+        return np.tensordot(x, self.W, axes=((-1), 0)) + self.b
 
-    def backward(self, X, gY):
+    def backward(self, x, gradient):
         """Return the gradient of the parmeters and the inputs of
         this layer."""
         # Same as: gW = np.einsum('ijk,ijl->kl', X, gY)
         # Same as: gW += np.dot(X[:,j,:].T, gY[:,j,:])
         #          (for i,j in X.shape[0:1])
-        gW = np.tensordot(X, gY, axes=(self.bpAxes, self.bpAxes))
-        gB = np.sum(gY, axis=self.bpAxes)
+        g_w = np.tensordot(x, gradient, axes=(self.axes, self.axes))
+        g_b = np.sum(gradient, axis=self.axes)
         # Same as: gX = np.einsum('ijk,kl->ijl', gY, self.W.T)
         # Same as: gX[i,j,:] = np.dot(gY[i,j,:], self.W.T)
         #          (for i,j in gY.shape[0:1])
-        gX = np.tensordot(gY, self.W.T, axes=((-1), (0)))
-        return gX, gW, gB
+        gradient = np.tensordot(gradient, self.W.T, axes=((-1), (0)))
+        return gradient, g_w, g_b
 
 
 # Define the logistic classifier layer
