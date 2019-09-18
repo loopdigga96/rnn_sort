@@ -283,6 +283,15 @@ class ModelSort:
         _, _, _, y_proba = self.forward(x_batch)
         return y_proba
 
+    def predict(self, x_batch):
+        """
+        This method predicts class
+        :param x_batch: 3d tensor of (batch_size, seq_length, input_length)
+        :return: 2d tensor of predictions (batch_size, seq_length)
+        """
+        y_proba = self.predict_proba(x_batch)
+        return np.argmax(y_proba, axis=2)
+
     # def getParamGrads(self, X, T):
     #     """Return the gradients with respect to input X and
     #     target T as a list. The list has the same order as the
