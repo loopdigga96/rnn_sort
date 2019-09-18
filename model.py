@@ -2,7 +2,7 @@ import numpy as np
 import itertools
 
 
-class Linear(object):
+class Linear:
     def __init__(self, input_size: int, output_size: int, tensor_dim: int,
                  weights=None, bias=None):
 
@@ -94,23 +94,20 @@ class SoftmaxClassifier:
         return delta
 
 
-# Define tanh layer
-class TanH(object):
+class TanH:
     """TanH applies the tanh function to its inputs."""
 
-    def forward(self, X):
-        """Perform the forward step transformation."""
-        return np.tanh(X)
+    def forward(self, x):
+        return np.tanh(x)
 
-    def backward(self, Y, output_grad):
-        """Return the gradient at the inputs of this layer."""
-        gTanh = 1.0 - (Y ** 2)
-        return (gTanh * output_grad)
+    def backward(self, x, gradient):
+        g_tanh = 1.0 - (x ** 2)
+        return g_tanh * gradient
 
 
 # TODO: merge it with RNN
 # Define internal state update layer
-class RecurrentStateUpdate(object):
+class RecurrentStateUpdate:
     """Update a given state."""
 
     def __init__(self, nbStates, W, b):
@@ -132,7 +129,7 @@ class RecurrentStateUpdate(object):
 
 
 # Define layer that unfolds the states over time
-class RNN(object):
+class RNN:
     """Unfold the recurrent states."""
 
     def __init__(self, nbStates, nbTimesteps):
@@ -181,7 +178,7 @@ class RNN(object):
 
 
 # Define the full network
-class ModelSort(object):
+class ModelSort:
 
     def __init__(self, input_size: int, output_size: int, hidden_size: int,
                  sequence_len: int, tensor_dim: int = 3):
