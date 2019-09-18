@@ -220,7 +220,7 @@ class ModelSort:
         :return:
         """
         linear_out, rnn_states, out, probabilities = self.forward(x_batch)
-        self.backward(x_batch, probabilities, linear_out, rnn_states, y_batch)
+        gradients = self.backward(x_batch, probabilities, linear_out, rnn_states, y_batch)
 
     def forward(self, x_batch):
         """
@@ -272,7 +272,7 @@ class ModelSort:
         for idx, parameter in enumerate(self.get_params_iter()):
             parameter -= self.lr * gradients[idx]
 
-        # return gradients
+        return gradients
 
     def predict_proba(self, x_batch):
         """
@@ -292,20 +292,23 @@ class ModelSort:
         y_proba = self.predict_proba(x_batch)
         return np.argmax(y_proba, axis=2)
 
-    # def getParamGrads(self, X, T):
-    #     """Return the gradients with respect to input X and
-    #     target T as a list. The list has the same order as the
-    #     get_params_iter iterator."""
-    #     recIn, S, Z, Y = self.forward(X)
-    #     gWout, gBout, gWrec, gBrec, gWin, gBin, gS0 = self.backward(X, Y, recIn, S, T)
-    #     return [g for g in itertools.chain(
-    #         np.nditer(gS0),
-    #         np.nditer(gWin),
-    #         np.nditer(gBin),
-    #         np.nditer(gWrec),
-    #         np.nditer(gBrec),
-    #         np.nditer(gWout),
-    #         np.nditer(gBout))]
+    def get_gradients(self, x_batch, y_batch):
+        """Return the gradients with respect to input X and
+        target T as a list. The list has the same order as the
+        get_params_iter iterator."""
+        linear_out, rnn_states, out, probabilities = self.forward(x_batch)
+        return self.backward(x_batch, probabilities, linear_out, rnn_states, y_batch)
+
+        # recIn, S, Z, Y = self.forward(X)
+        # gWout, gBout, gWrec, gBrec, gWin, gBin, gS0 = self.backward(X, Y, recIn, S, T)
+        # return [g for g in itertools.chain(
+        #     np.nditer(gS0),
+        #     np.nditer(gWin),
+        #     np.nditer(gBin),
+        #     np.nditer(gWrec),
+        #     np.nditer(gBrec),
+        #     np.nditer(gWout),
+        #     np.nditer(gBout))]
 
     def loss(self, y_pred, y_true):
         """
