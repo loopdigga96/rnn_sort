@@ -60,10 +60,11 @@ class SoftmaxClassifier:
         for idx in range(len(delta)):
             grad = y_pred[idx]
             grad[range(m), y_true[idx].flatten()] -= 1
-            grad = grad / m
+            # grad = grad / m
             delta[idx] = grad
 
-        return delta
+        # return delta
+        return delta / (y_pred.shape[0] * y_pred.shape[1])
 
 
 class Linear:
@@ -85,7 +86,7 @@ class Linear:
         # Same as: Y[i,j,:] = np.dot(X[i,j,:], self.W) + self.b
         #          (for i,j in X.shape[0:1])
         # Same as: Y = np.einsum('ijk,kl->ijl', X, self.W) + self.b
-        return np.tensordot(x, self.W, axes=((-1), 0)) + self.b
+        return np.tensordot(x, self.W, axes=((-1), (0))) + self.b
 
     def backward(self, x, gradient):
         """
