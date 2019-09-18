@@ -34,78 +34,63 @@ class Linear(object):
         return gradient, g_w, g_b
 
 
-# Define the logistic classifier layer
-class LogisticClassifier(object):
-    """The logistic layer applies the logistic function to its
-    inputs."""
-
-    def forward(self, X):
-        """Perform the forward step transformation."""
-        return 1. / (1. + np.exp(-X))
-
-    def backward(self, Y, T):
-        """Return the gradient with respect to the loss function
-        at the inputs of this layer."""
-        # Average by the number of samples and sequence length.
-        return (Y - T) / (Y.shape[0] * Y.shape[1])
-
-    def loss(self, Y, T):
-        """Compute the loss at the output."""
-        return -np.mean((T * np.log(Y)) + ((1 - T) * np.log(1 - Y)))
-
-
 class SoftmaxClassifier:
-    def forward(self, X, theta=1.0, axis=2):
-        "Takes X as 3d tensor"
-
-        # multiply y against the theta parameter,
-        y = X * float(theta)
+    def forward(self, x):
+        """
+        :param x: 3d tensor (batch_size, seq_length, input_size)
+        :return: softmax probabilities
+        """
+        axis=2
         # subtract the max for numerical stability
-        y = y - np.expand_dims(np.max(y, axis=axis), axis)
-        # exponentiate y
+        y = x - np.expand_dims(np.max(x, axis=axis), axis)
         y = np.exp(y)
         # take the sum along the specified axis
         ax_sum = np.expand_dims(np.sum(y, axis=axis), axis)
-        # finally: divide elementwise
         return y / ax_sum
 
-    def loss(self, Y, T):
+    def loss(self, y_pred, y_true):
         """
-        Y is the output from fully connected layer passed through softmax (batch_size x num_examples x num_classes)
-        T is labels (batch_size x num_examples x 1)
-            Note that y is not one-hot encoded vector.
-            It can be computed as y.argmax(axis=1) from one-hot encoded vectors of labels if required.
+        Computes Cross entropy loss
+        :param y_pred: softmax activations (batch_size, seq_length, number_of_classes)
+        :param y_true: ground truth labels (batch_size, seq_length, 1)
+        :return: mean cross entropy loss over batch
         """
-        #         print(f"Y.shape {Y.shape}")
-        #         print(f"T.shape {T.shape}")
-        m = T.shape[1]
-        # ps = self.forward(Y, axis=2)
+
+        seq_length = y_true.shape[1]
 
         losses = []
-        for idx, p in enumerate(Y):
-            log_likelihood = -np.log(p[range(m), T[idx].flatten()])
-            loss = np.sum(log_likelihood) / m
+        for idx, p in enumerate(y_pred):
+
+            # compute log likelihood
+            log_likelihood = -np.log(p[range(seq_length), y_true[idx].flatten()])
+            loss = np.sum(log_likelihood) / seq_length
             losses.append(loss)
+
         return np.mean(losses)
 
-    def backward(self, X, T):
+    def backward(self, y_pred, y_true):
+        """
+        Computes gradients of loss function
+        :param y_pred: softmax activations (batch_size, seq_length, number_of_classes)
+        :param y_true: ground truth labels (batch_size, seq_length, 1)
+        :return: gradient
+        """
+
         """
         X is the output from fully connected layer passed through softmax (batch_size x num_examples x num_classes)
         T is labels (batch_size x num_examples x 1)
             Note that y is not one-hot encoded vector.
             It can be computed as y.argmax(axis=1) from one-hot encoded vectors of labels if required.
         """
-        delta = np.zeros(X.shape)
-        m = T.shape[1]
+        delta = np.zeros(y_pred.shape)
+        m = y_true.shape[1]
 
         for idx in range(len(delta)):
-            # x = Y[idx]
-            # grad = self.forward(x, axis=1)
-            # grad = x
-            grad = X[idx]
-            grad[range(m), T[idx].flatten()] -= 1
+            grad = y_pred[idx]
+            grad[range(m), y_true[idx].flatten()] -= 1
             grad = grad / m
             delta[idx] = grad
+
         return delta
 
 
