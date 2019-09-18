@@ -5,7 +5,6 @@ import itertools
 class Linear:
     def __init__(self, input_size: int, output_size: int, tensor_dim: int,
                  weights=None, bias=None):
-
         a = np.sqrt(6.0 / (input_size + output_size))
         self.W = (np.random.uniform(-a, a, (input_size, output_size))
                   if weights is None else weights)
@@ -40,7 +39,7 @@ class SoftmaxClassifier:
         :param x: 3d tensor (batch_size, seq_length, input_size)
         :return: softmax probabilities
         """
-        axis=2
+        axis = 2
         # subtract the max for numerical stability
         y = x - np.expand_dims(np.max(x, axis=axis), axis)
         y = np.exp(y)
@@ -60,7 +59,6 @@ class SoftmaxClassifier:
 
         losses = []
         for idx, p in enumerate(y_pred):
-
             # compute log likelihood
             log_likelihood = -np.log(p[range(seq_length), y_true[idx].flatten()])
             loss = np.sum(log_likelihood) / seq_length
@@ -105,9 +103,8 @@ class TanH:
         return g_tanh * gradient
 
 
-# TODO: merge it with RNN
 # Define internal state update layer
-class RecurrentStateUpdate:
+class RNNCell:
     """Update a given state."""
 
     def __init__(self, nbStates, W, b):
@@ -129,55 +126,71 @@ class RecurrentStateUpdate:
 
 
 # Define layer that unfolds the states over time
-class RNN:
+class RNNLayer:
     """Unfold the recurrent states."""
 
-    def __init__(self, nbStates, nbTimesteps):
+    def __init__(self, hidden_size, sequence_length):
         """Initialse the shared parameters, the inital state and
         state update function."""
-        a = np.sqrt(6. / (nbStates * 2))
-        self.W = np.random.uniform(-a, a, (nbStates, nbStates))
-        self.b = np.zeros((self.W.shape[0]))  # Shared bias
-        self.S0 = np.zeros(nbStates)  # Initial state
-        self.nbTimesteps = nbTimesteps  # Timesteps to unfold
-        self.stateUpdate = RecurrentStateUpdate(
-            nbStates, self.W, self.b)  # State update function
 
-    def forward(self, X):
-        """Iteratively apply forward step to all states."""
+        a = np.sqrt(6. / (hidden_size * 2))
+        self.W = np.random.uniform(-a, a, (hidden_size, hidden_size))
+        self.b = np.zeros((self.W.shape[0]))
+        self.rnn_cell = RNNCell(
+            hidden_size, self.W, self.b)  # State update function
+        self.hidden_size = hidden_size
+        self.sequence_length = sequence_length  # Timesteps to unfold
+
+        self.initial_state = np.zeros(hidden_size)
+
+    def forward(self, x):
+        """
+        :param x: 3d tensor (batch_size, seq_length, input_length)
+        :return: all hidden states
+        """
         # State tensor
-        S = np.zeros((X.shape[0], X.shape[1] + 1, self.W.shape[0]))
-        S[:, 0, :] = self.S0  # Set initial state
-        for k in range(self.nbTimesteps):
+        states = np.zeros((x.shape[0], x.shape[1] + 1, self.hidden_size))
+        states[:, 0] = self.initial_state  # Set initial state
+
+        for idx in range(self.sequence_length):
             # Update the states iteratively
-            S[:, k + 1, :] = self.stateUpdate.forward(X[:, k, :], S[:, k, :])
-        return S
+            states[:, idx + 1] = self.rnn_cell.forward(x[:, idx], states[:, idx])
+        return states
 
-    def backward(self, X, S, gY):
-        """Return the gradient of the parmeters and the inputs of
-        this layer."""
+    def backward(self, x, states, input_gradient):
+        """
+        This method computes BPTT and returns all necessary gradients
+        :param x: 3d tensor (batch_size, seq_length, input_length)
+        :param states: 3d tensor of all rnn states (batch_size, seq_length, hidden_size)
+        :param input_gradient: gradient value on previous layers
+        :return: gradient, g_w_sum, g_b_sum, g_initial_state
+        """
+
         # Initialise gradient of state outputs
-        gSk = np.zeros_like(gY[:, self.nbTimesteps - 1, :])
+        g_sk = np.zeros_like(input_gradient[:, self.sequence_length - 1])
+
         # Initialse gradient tensor for state inputs
-        gZ = np.zeros_like(X)
-        gWSum = np.zeros_like(self.W)  # Initialise weight gradients
-        gBSum = np.zeros_like(self.b)  # Initialse bias gradients
+        gradient = np.zeros_like(x)
+        g_w_sum = np.zeros_like(self.W)  # Initialise weight gradients
+        g_b_sum = np.zeros_like(self.b)  # Initialise bias gradients
+
         # Propagate the gradients iteratively
-        for k in range(self.nbTimesteps - 1, -1, -1):
-            # Gradient at state output is gradient from previous state
-            #  plus gradient from output
-            gSk += gY[:, k, :]
-            # Propgate the gradient back through one state
-            gZ[:, k, :], gSk, gW, gB = self.stateUpdate.backward(
-                S[:, k, :], S[:, k + 1, :], gSk)
-            gWSum += gW  # Update total weight gradient
-            gBSum += gB  # Update total bias gradient
+        for k in range(self.sequence_length - 1, -1, -1):
+            # Gradient at state output is gradient from previous state plus gradient from output
+            g_sk += input_gradient[:, k]
+
+            # Propagate the gradient back through one state
+            gradient[:, k], g_sk, g_w, g_b = self.rnn_cell.backward(
+                states[:, k], states[:, k + 1], g_sk)
+
+            g_w_sum += g_w  # Update total weight gradient
+            g_b_sum += g_b  # Update total bias gradient
+
         # Get gradient of initial state over all samples
-        gS0 = np.sum(gSk, axis=0)
-        return gZ, gWSum, gBSum, gS0
+        g_initial_state = np.sum(g_sk, axis=0)
+        return gradient, g_w_sum, g_b_sum, g_initial_state
 
 
-# Define the full network
 class ModelSort:
 
     def __init__(self, input_size: int, output_size: int, hidden_size: int,
@@ -185,13 +198,11 @@ class ModelSort:
         tensor_dim = 3
         self.lr = 1e-3
 
-        # Input layer
         self.input_linear = Linear(input_size, hidden_size, tensor_dim)
-        # Recurrent layer
-        self.rnn = RNN(hidden_size, sequence_len)
-        # Linear output transform
+        self.rnn = RNNLayer(hidden_size, sequence_len)
         self.output_linear = Linear(hidden_size, output_size, tensor_dim)
         self.classifier = SoftmaxClassifier()  # Classification output
+
         self.sequence_len = sequence_len
 
     def train_on_batch(self, x_batch, y_batch):
@@ -222,7 +233,7 @@ class ModelSort:
         :param x_batch: 3d tensor (batch_size, seq_length, input_length)
         :param y_pred (batch_size, seq_length, number_of_classes)
         :param linear_out:
-        :param rnn_states:
+        :param rnn_states: 3d tensor of all rnn states (batch_size, seq_length, hidden_size)
         :param y_batch: 3d tensor (batch_size, seq_length, 1)
         :return:
         """
@@ -242,13 +253,13 @@ class ModelSort:
         #  linear input weights, linear input bias, initial state.
 
         gradients = [g for g in itertools.chain(
-                     np.nditer(g_init_state),
-                     np.nditer(g_lin_w),
-                     np.nditer(g_lin_b),
-                     np.nditer(g_rnn_w),
-                     np.nditer(g_rnn_b),
-                     np.nditer(g_lout_w),
-                     np.nditer(g_lout_b))]
+            np.nditer(g_init_state),
+            np.nditer(g_lin_w),
+            np.nditer(g_lin_b),
+            np.nditer(g_rnn_w),
+            np.nditer(g_rnn_b),
+            np.nditer(g_lout_w),
+            np.nditer(g_lout_b))]
 
         # update weights
         for idx, parameter in enumerate(self.get_params_iter()):
@@ -261,7 +272,7 @@ class ModelSort:
         :param x_batch: 3d tensor of (batch_size, seq_length, input_length)
         :return: y_proba (batch_size, seq_length, number_of_classes)
         """
-        #TODO: add predict method wit argmaax
+        # TODO: add predict method wit argmaax
         _, _, _, y_proba = self.forward(x_batch)
         return y_proba
 
@@ -292,7 +303,7 @@ class ModelSort:
         """Returns iterator over all parameters in model;
         np.nditer is efficient iterator from numpy; parameters are idetable inplace"""
         return itertools.chain(
-            np.nditer(self.rnn.S0, op_flags=['readwrite']),
+            np.nditer(self.rnn.initial_state, op_flags=['readwrite']),
             np.nditer(self.input_linear.W, op_flags=['readwrite']),
             np.nditer(self.input_linear.b, op_flags=['readwrite']),
             np.nditer(self.rnn.W, op_flags=['readwrite']),
