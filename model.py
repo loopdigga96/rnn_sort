@@ -74,12 +74,6 @@ class SoftmaxClassifier:
         :return: gradient
         """
 
-        """
-        X is the output from fully connected layer passed through softmax (batch_size x num_examples x num_classes)
-        T is labels (batch_size x num_examples x 1)
-            Note that y is not one-hot encoded vector.
-            It can be computed as y.argmax(axis=1) from one-hot encoded vectors of labels if required.
-        """
         delta = np.zeros(y_pred.shape)
         m = y_true.shape[1]
 
@@ -103,26 +97,34 @@ class TanH:
         return g_tanh * gradient
 
 
-# Define internal state update layer
 class RNNCell:
-    """Update a given state."""
 
-    def __init__(self, nbStates, W, b):
-        """Initialse the linear transformation and tanh transfer
-        function."""
-        self.linear = Linear(nbStates, nbStates, 2, W, b)
+    def __init__(self, hidden_size, W, b):
+        tensor_dim = 2
+        self.linear = Linear(hidden_size, hidden_size, tensor_dim,
+                             W, b)
         self.tanh = TanH()
 
-    def forward(self, Xk, Sk):
-        """Return state k+1 from input and state k."""
-        return self.tanh.forward(Xk + self.linear.forward(Sk))
+    def forward(self, x, previous_state):
+        """
+        This function makes one forward pass
+        :param x: 2d tensor (batch_size, hidden_size)
+        :param previous_state: 2d tensor (batch_size x hidden_size) of rnn state on previous forward pass
+        :return: rnn cell output
+        """
+        return self.tanh.forward(x + self.linear.forward(previous_state))
 
-    def backward(self, Sk0, Sk1, output_grad):
-        """Return the gradient of the parmeters and the inputs of
-        this layer."""
-        gZ = self.tanh.backward(Sk1, output_grad)
-        gSk0, gW, gB = self.linear.backward(Sk0, gZ)
-        return gZ, gSk0, gW, gB
+    def backward(self, previous_state, current_state, gradient_state):
+        """
+        :param previous_state: 2d tensor (batch_size x hidden_size) of rnn state
+        :param current_state: 2d tensor (batch_size x hidden_size) of rnn state
+        :param gradient_state: accumulated gradient during BPTT
+        :return:gradient, gradient_state, g_w, g_b
+        """
+
+        gradient = self.tanh.backward(current_state, gradient_state)
+        gradient_state, g_w, g_b = self.linear.backward(previous_state, gradient)
+        return gradient, gradient_state, g_w, g_b
 
 
 # Define layer that unfolds the states over time
@@ -130,16 +132,14 @@ class RNNLayer:
     """Unfold the recurrent states."""
 
     def __init__(self, hidden_size, sequence_length):
-        """Initialse the shared parameters, the inital state and
-        state update function."""
 
         a = np.sqrt(6. / (hidden_size * 2))
         self.W = np.random.uniform(-a, a, (hidden_size, hidden_size))
         self.b = np.zeros((self.W.shape[0]))
         self.rnn_cell = RNNCell(
-            hidden_size, self.W, self.b)  # State update function
+            hidden_size, self.W, self.b)
         self.hidden_size = hidden_size
-        self.sequence_length = sequence_length  # Timesteps to unfold
+        self.sequence_length = sequence_length
 
         self.initial_state = np.zeros(hidden_size)
 
@@ -148,7 +148,6 @@ class RNNLayer:
         :param x: 3d tensor (batch_size, seq_length, input_length)
         :return: all hidden states
         """
-        # State tensor
         states = np.zeros((x.shape[0], x.shape[1] + 1, self.hidden_size))
         states[:, 0] = self.initial_state  # Set initial state
 
@@ -167,7 +166,7 @@ class RNNLayer:
         """
 
         # Initialise gradient of state outputs
-        g_sk = np.zeros_like(input_gradient[:, self.sequence_length - 1])
+        gradient_state = np.zeros_like(input_gradient[:, self.sequence_length - 1])
 
         # Initialse gradient tensor for state inputs
         gradient = np.zeros_like(x)
@@ -177,17 +176,17 @@ class RNNLayer:
         # Propagate the gradients iteratively
         for k in range(self.sequence_length - 1, -1, -1):
             # Gradient at state output is gradient from previous state plus gradient from output
-            g_sk += input_gradient[:, k]
+            gradient_state += input_gradient[:, k]
 
             # Propagate the gradient back through one state
-            gradient[:, k], g_sk, g_w, g_b = self.rnn_cell.backward(
-                states[:, k], states[:, k + 1], g_sk)
+            gradient[:, k], gradient_state, g_w, g_b = self.rnn_cell.backward(
+                states[:, k], states[:, k + 1], gradient_state)
 
             g_w_sum += g_w  # Update total weight gradient
             g_b_sum += g_b  # Update total bias gradient
 
         # Get gradient of initial state over all samples
-        g_initial_state = np.sum(g_sk, axis=0)
+        g_initial_state = np.sum(gradient_state, axis=0)
         return gradient, g_w_sum, g_b_sum, g_initial_state
 
 
