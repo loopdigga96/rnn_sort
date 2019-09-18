@@ -399,7 +399,7 @@ plt.show()
 
 
 def test_model(model, x, y):
-    predictions = np.argmax(model.getOutput(x), axis=-1)
+    predictions = np.argmax(model.predict_proba(x), axis=-1)
     #print(predictions)
     #print(y.squeeze())
     print(classification_report(y.squeeze().flatten(), predictions.flatten()))

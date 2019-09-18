@@ -206,84 +206,119 @@ class ModelSort(object):
     def __init__(self, input_size: int, output_size: int, hidden_size: int,
                  sequence_len: int, tensor_dim: int = 3):
         tensor_dim = 3
+        self.lr = 1e-3
 
         # Input layer
         self.input_linear = Linear(input_size, hidden_size, tensor_dim)
         # Recurrent layer
-        self.rnnUnfold = RNN(hidden_size, sequence_len)
+        self.rnn = RNN(hidden_size, sequence_len)
         # Linear output transform
         self.output_linear = Linear(hidden_size, output_size, tensor_dim)
         self.classifier = SoftmaxClassifier()  # Classification output
         self.sequence_len = sequence_len
 
-    def forward(self, X):
+    def train_on_batch(self, x_batch, y_batch):
         """
-        :param X: 3d tensor (batch_size, seq_length, input_length)
+        This method makes forward run and update its parameters
+        :param x_batch: 3d tensor (batch_size, seq_length, input_length)
+        :param y_batch: 3d tensor (batch_size, seq_length, 1)
+        :return:
+        """
+        linear_out, rnn_states, out, probabilities = self.forward(x_batch)
+        self.backward(x_batch, probabilities, linear_out, rnn_states, y_batch)
+
+    def forward(self, x_batch):
+        """
+        :param x_batch: 3d tensor (batch_size, seq_length, input_length)
         :return: linear_out, rnn_states, linear_out, probabilites
         """
-        # Linear input transformation
-        linear_out = self.input_linear.forward(X)
-        # Forward propagate through time and return states
-        rrn_states = self.rnnUnfold.forward(linear_out)
-        # Linear output transformation
-        out = self.output_linear.forward(rrn_states[:, 1:self.sequence_len + 1, :])
+        linear_out = self.input_linear.forward(x_batch)
+        rnn_states = self.rnn.forward(linear_out)
+        out = self.output_linear.forward(rnn_states[:, 1:self.sequence_len + 1, :])
         probabilities = self.classifier.forward(out)
-        return linear_out, rrn_states, out, probabilities
 
-    def backward(self, X, Y, recIn, S, T):
-        """Perform the backward propagation through all layers.
-        Input: input samples, network output, input to recurrent
-        layer, states, targets."""
-        gZ = self.classifier.backward(Y, T)  # Get output gradient
-        gRecOut, gWout, gBout = self.output_linear.backward(
-            S[:, 1:self.sequence_len + 1, :], gZ)
+        return linear_out, rnn_states, out, probabilities
+
+    def backward(self, x_batch, y_pred, linear_out, rnn_states, y_batch):
+        """
+        Make computing of gradients and update parameters
+        :param x_batch: 3d tensor (batch_size, seq_length, input_length)
+        :param y_pred (batch_size, seq_length, number_of_classes)
+        :param linear_out:
+        :param rnn_states:
+        :param y_batch: 3d tensor (batch_size, seq_length, 1)
+        :return:
+        """
+
+        # get gradients for all layers
+        gradient = self.classifier.backward(y_pred, y_batch)
+        gradient, g_lout_w, g_lout_b = self.output_linear.backward(
+            rnn_states[:, 1:self.sequence_len + 1, :], gradient)
+
         # Propagate gradient backwards through time
-        gRnnIn, gWrec, gBrec, gS0 = self.rnnUnfold.backward(
-            recIn, S, gRecOut)
-        gX, gWin, gBin = self.input_linear.backward(X, gRnnIn)
+        gradient, g_rnn_w, g_rnn_b, g_init_state = self.rnn.backward(
+            linear_out, rnn_states, gradient)
+
+        g_x, g_lin_w, g_lin_b = self.input_linear.backward(x_batch, gradient)
         # Return the parameter gradients of: linear output weights,
         #  linear output bias, recursive weights, recursive bias, #
         #  linear input weights, linear input bias, initial state.
-        return gWout, gBout, gWrec, gBrec, gWin, gBin, gS0
 
-    def getOutput(self, X):
-        """Get the output probabilities of input X."""
-        recIn, S, Z, Y = self.forward(X)
-        return Y
+        gradients = [g for g in itertools.chain(
+                     np.nditer(g_init_state),
+                     np.nditer(g_lin_w),
+                     np.nditer(g_lin_b),
+                     np.nditer(g_rnn_w),
+                     np.nditer(g_rnn_b),
+                     np.nditer(g_lout_w),
+                     np.nditer(g_lout_b))]
 
-    def getBinaryOutput(self, X):
-        """Get the binary output of input X."""
-        return np.around(self.getOutput(X))
+        # update weights
+        for idx, parameter in enumerate(self.get_params_iter()):
+            parameter -= self.lr * gradients[idx]
 
-    def getParamGrads(self, X, T):
-        """Return the gradients with respect to input X and
-        target T as a list. The list has the same order as the
-        get_params_iter iterator."""
-        recIn, S, Z, Y = self.forward(X)
-        gWout, gBout, gWrec, gBrec, gWin, gBin, gS0 = self.backward(
-            X, Y, recIn, S, T)
-        return [g for g in itertools.chain(
-            np.nditer(gS0),
-            np.nditer(gWin),
-            np.nditer(gBin),
-            np.nditer(gWrec),
-            np.nditer(gBrec),
-            np.nditer(gWout),
-            np.nditer(gBout))]
+        # return gradients
 
-    def loss(self, Y, T):
-        """Return the loss of input X w.r.t. targets T."""
-        return self.classifier.loss(Y, T)
+    def predict_proba(self, x_batch):
+        """
+        :param x_batch: 3d tensor of (batch_size, seq_length, input_length)
+        :return: y_proba (batch_size, seq_length, number_of_classes)
+        """
+        #TODO: add predict method wit argmaax
+        _, _, _, y_proba = self.forward(x_batch)
+        return y_proba
+
+    # def getParamGrads(self, X, T):
+    #     """Return the gradients with respect to input X and
+    #     target T as a list. The list has the same order as the
+    #     get_params_iter iterator."""
+    #     recIn, S, Z, Y = self.forward(X)
+    #     gWout, gBout, gWrec, gBrec, gWin, gBin, gS0 = self.backward(X, Y, recIn, S, T)
+    #     return [g for g in itertools.chain(
+    #         np.nditer(gS0),
+    #         np.nditer(gWin),
+    #         np.nditer(gBin),
+    #         np.nditer(gWrec),
+    #         np.nditer(gBrec),
+    #         np.nditer(gWout),
+    #         np.nditer(gBout))]
+
+    def loss(self, y_pred, y_true):
+        """
+        :param y_pred: predicted probabilities (batch_size, seq_length, number_of_classes)
+        :param y_true: true labels (batch_size, seq_length, 1)
+        :return: Cross entropy loss over batch
+        """
+        return self.classifier.loss(y_pred, y_true)
 
     def get_params_iter(self):
-        """Return an iterator over the parameters.
-        The iterator has the same order as get_params_grad.
-        The elements returned by the iterator are editable in-place."""
+        """Returns iterator over all parameters in model;
+        np.nditer is efficient iterator from numpy; parameters are idetable inplace"""
         return itertools.chain(
-            np.nditer(self.rnnUnfold.S0, op_flags=['readwrite']),
+            np.nditer(self.rnn.S0, op_flags=['readwrite']),
             np.nditer(self.input_linear.W, op_flags=['readwrite']),
             np.nditer(self.input_linear.b, op_flags=['readwrite']),
-            np.nditer(self.rnnUnfold.W, op_flags=['readwrite']),
-            np.nditer(self.rnnUnfold.b, op_flags=['readwrite']),
+            np.nditer(self.rnn.W, op_flags=['readwrite']),
+            np.nditer(self.rnn.b, op_flags=['readwrite']),
             np.nditer(self.output_linear.W, op_flags=['readwrite']),
             np.nditer(self.output_linear.b, op_flags=['readwrite']))
