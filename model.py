@@ -2,35 +2,15 @@ import numpy as np
 import itertools
 
 
-class Linear:
-    def __init__(self, input_size: int, output_size: int, tensor_dim: int,
-                 weights=None, bias=None):
-        a = np.sqrt(6.0 / (input_size + output_size))
-        self.W = (np.random.uniform(-a, a, (input_size, output_size))
-                  if weights is None else weights)
-        self.b = (np.zeros(output_size) if bias is None else bias)
-        # Axes summed over in backprop
-        self.axes = tuple(range(tensor_dim - 1))
+class TanH:
+    """TanH applies the tanh function to its inputs."""
 
     def forward(self, x):
-        # Same as: Y[i,j,:] = np.dot(X[i,j,:], self.W) + self.b
-        #          (for i,j in X.shape[0:1])
-        # Same as: Y = np.einsum('ijk,kl->ijl', X, self.W) + self.b
-        return np.tensordot(x, self.W, axes=((-1), 0)) + self.b
+        return np.tanh(x)
 
     def backward(self, x, gradient):
-        """Return the gradient of the parmeters and the inputs of
-        this layer."""
-        # Same as: gW = np.einsum('ijk,ijl->kl', X, gY)
-        # Same as: gW += np.dot(X[:,j,:].T, gY[:,j,:])
-        #          (for i,j in X.shape[0:1])
-        g_w = np.tensordot(x, gradient, axes=(self.axes, self.axes))
-        g_b = np.sum(gradient, axis=self.axes)
-        # Same as: gX = np.einsum('ijk,kl->ijl', gY, self.W.T)
-        # Same as: gX[i,j,:] = np.dot(gY[i,j,:], self.W.T)
-        #          (for i,j in gY.shape[0:1])
-        gradient = np.tensordot(gradient, self.W.T, axes=((-1), (0)))
-        return gradient, g_w, g_b
+        g_tanh = 1.0 - (x ** 2)
+        return g_tanh * gradient
 
 
 class SoftmaxClassifier:
@@ -86,15 +66,43 @@ class SoftmaxClassifier:
         return delta
 
 
-class TanH:
-    """TanH applies the tanh function to its inputs."""
+class Linear:
+    def __init__(self, input_size: int, output_size: int, tensor_dim: int,
+                 weights=None, bias=None):
+        a = np.sqrt(6.0 / (input_size + output_size))
+        self.W = (np.random.uniform(-a, a, (input_size, output_size))
+                  if weights is None else weights)
+        self.b = (np.zeros(output_size) if bias is None else bias)
+        # Axes summed over in backprop
+        self.axes = tuple(range(tensor_dim - 1))
 
     def forward(self, x):
-        return np.tanh(x)
+        """
+        makes forward pass
+        :param x: n-d tensor
+        :return: linear transformation
+        """
+        # Same as: Y[i,j,:] = np.dot(X[i,j,:], self.W) + self.b
+        #          (for i,j in X.shape[0:1])
+        # Same as: Y = np.einsum('ijk,kl->ijl', X, self.W) + self.b
+        return np.tensordot(x, self.W, axes=((-1), 0)) + self.b
 
     def backward(self, x, gradient):
-        g_tanh = 1.0 - (x ** 2)
-        return g_tanh * gradient
+        """
+        :param x: n-d tensor
+        :param gradient: gradient on previous step of backpropagation
+        :return: gradient, g_w, g_b
+        """
+        # Same as: gW = np.einsum('ijk,ijl->kl', X, gY)
+        # Same as: gW += np.dot(X[:,j,:].T, gY[:,j,:])
+        #          (for i,j in X.shape[0:1])
+        g_w = np.tensordot(x, gradient, axes=(self.axes, self.axes))
+        g_b = np.sum(gradient, axis=self.axes)
+        # Same as: gX = np.einsum('ijk,kl->ijl', gY, self.W.T)
+        # Same as: gX[i,j,:] = np.dot(gY[i,j,:], self.W.T)
+        #          (for i,j in gY.shape[0:1])
+        gradient = np.tensordot(gradient, self.W.T, axes=((-1), (0)))
+        return gradient, g_w, g_b
 
 
 class RNNCell:
@@ -299,8 +307,10 @@ class ModelSort:
         return self.classifier.loss(y_pred, y_true)
 
     def get_params_iter(self):
-        """Returns iterator over all parameters in model;
-        np.nditer is efficient iterator from numpy; parameters are idetable inplace"""
+        """
+        Returns iterator over all parameters in model;
+        np.nditer is efficient iterator from numpy; parameters are idetable inplace
+        """
         return itertools.chain(
             np.nditer(self.rnn.initial_state, op_flags=['readwrite']),
             np.nditer(self.input_linear.W, op_flags=['readwrite']),
