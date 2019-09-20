@@ -19,13 +19,18 @@ class SoftmaxClassifier:
         :param x: 3d tensor (batch_size, seq_length, input_size)
         :return: softmax probabilities
         """
-        axis = 2
-        # subtract the max for numerical stability
-        y = x - np.expand_dims(np.max(x, axis=axis), axis)
-        y = np.exp(y)
-        # take the sum along the specified axis
-        ax_sum = np.expand_dims(np.sum(y, axis=axis), axis)
-        return y / ax_sum
+        
+        x = x - np.expand_dims(np.max(x, axis=2), 2)
+        exp = np.exp(x)
+        exp_sum = exp.sum(-1)
+        return exp / exp_sum[:,:,np.newaxis]
+#         axis = 2
+#         # subtract the max for numerical stability
+#         y = x - np.expand_dims(np.max(x, axis=axis), axis)
+#         y = np.exp(y)
+#         # take the sum along the specified axis
+#         ax_sum = np.expand_dims(np.sum(y, axis=axis), axis)
+#         return y / ax_sum
 
     def loss(self, y_pred, y_true):
         """
